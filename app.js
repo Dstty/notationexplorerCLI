@@ -1,10 +1,10 @@
 ﻿// ============================================================================
 //  导入树管理核心
 // ============================================================================
-import { TreeManager, TreeNode, compareArrays } from './treeManager.js';
+import { TreeManager } from './treeManager.js';
 
 // ============================================================================
-//  导入主题、符号常量、记号核心
+//  导入主题、符号常量、记号核心、解析器
 // ============================================================================
 import { THEMES, GUTTER, BRANCH, LAST_B, EMPTY } from './themes.js';
 import {
@@ -12,8 +12,8 @@ import {
   notationCache,
   loadNotation,
   createNotationAdapter,
-  parseInput,
 } from './notationCore.js';
+import { parseNotation, parseCommand } from './parser/index.js';
 
 // ============================================================================
 //  React 组件 (TreeNodeView)
@@ -26,13 +26,18 @@ function buildRenderNode(manager, nodeId, notationKey, notationNames, treeIndex)
   let displayStr;
   const notName = notationNames[notationKey] || notationKey;
 
-  if (node.data === null && node.type === 'LIMIT') {
+  const rawMod = notationCache.get(notationKey);
+  const mod = rawMod ? createNotationAdapter(rawMod, notationKey) : null;
+
+  // ★ help 极限只显示 "help"
+  if (node.type === 'LIMIT' && notationKey === 'help') {
+    displayStr = notName;
+  } else if (node.data === null && node.type === 'LIMIT') {
     displayStr = `Limit ${notName}`;
   } else if (node.error) {
     displayStr = `Error: ${node.error}`;
   } else if (node.type === 'LIMIT') {
     try {
-      const mod = notationCache.get(notationKey);
       if (mod && typeof mod.display === 'function') {
         const inner = mod.display(node.data, false);
         displayStr = `${notName}(${inner})`;
@@ -44,7 +49,6 @@ function buildRenderNode(manager, nodeId, notationKey, notationNames, treeIndex)
     }
   } else {
     try {
-      const mod = notationCache.get(notationKey);
       if (mod && typeof mod.display === 'function') {
         displayStr = mod.display(node.data, true);
       } else {
@@ -55,6 +59,18 @@ function buildRenderNode(manager, nodeId, notationKey, notationNames, treeIndex)
     }
   }
 
+  let nativeDisplay = null;
+  if (!node.error && mod && typeof mod.toNative === 'function' && node.data !== null) {
+    try {
+      const result = mod.toNative(node.data);
+      if (result !== null && result !== undefined) {
+        nativeDisplay = String(result);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const canActuallyExpand = manager.canExpandNode ? manager.canExpandNode(nodeId) : false;
 
   return {
@@ -62,6 +78,7 @@ function buildRenderNode(manager, nodeId, notationKey, notationNames, treeIndex)
     type: node.type,
     data: node.data,
     displayStr,
+    nativeDisplay,
     isExpanded: node.isExpanded,
     hasExpanded: node.hasExpanded,
     error: node.error,
@@ -97,6 +114,8 @@ function TreeNodeView({
   const isFocused = focusedItem?.type === "node" && focusedItem.id === node.id && focusedItem.treeIndex === node.treeIndex;
   const isMoreFocused = focusedItem?.type === "more" && focusedItem.parentId === node.id && focusedItem.treeIndex === node.treeIndex;
 
+  const isHelp = node.notationKey === 'help';
+
   React.useEffect(() => {
     if (isFocused && ref.current) ref.current.scrollIntoView({ block: "nearest" });
   }, [isFocused]);
@@ -118,24 +137,25 @@ function TreeNodeView({
 
   const renderChildren = () => {
     if (!node.isExpanded) return null;
-    const renderChildrenList = node.children;
-    const n = renderChildrenList.length;
+
+    const childrenList = isHelp ? [...node.children].reverse() : node.children;
+    const n = childrenList.length;
     const elements = [];
 
-    if (hasMore) {
+    const renderMore = () => {
       const morePrefixes = (fsIndex !== undefined) ?
         [...prefixes, isLast ? EMPTY : GUTTER] :
         [...prefixes, GUTTER];
       const moreConn = (n > 0) ? BRANCH : LAST_B;
 
-      const moreElement = React.createElement(
+      return React.createElement(
         "div", {
           ref: moreRef,
           key: "__more__",
           style: {
             display: "flex",
             alignItems: "baseline",
-            minHeight: 22,
+            minHeight: 26,
             cursor: "pointer",
             background: isMoreFocused ? theme.highlight : "transparent",
             margin: "0 -4px",
@@ -165,17 +185,20 @@ function TreeNodeView({
             style: {
               color: theme.moreColor,
               fontStyle: "italic",
-              fontSize: 12
+              fontSize: 14
             }
           },
           "… (点击或按 Enter)"
         )
       );
-      elements.push(moreElement);
+    };
+
+    if (hasMore && !isHelp) {
+      elements.push(renderMore());
     }
 
     for (let i = 0; i < n; i++) {
-      const child = renderChildrenList[i];
+      const child = childrenList[i];
       const isLastChild = (i === n - 1);
       const childPrefixes = (fsIndex !== undefined) ?
         [...prefixes, isLast ? EMPTY : GUTTER] :
@@ -199,6 +222,10 @@ function TreeNodeView({
       );
     }
 
+    if (hasMore && isHelp) {
+      elements.push(renderMore());
+    }
+
     return elements;
   };
 
@@ -209,7 +236,7 @@ function TreeNodeView({
         style: {
           display: "flex",
           alignItems: "baseline",
-          minHeight: 22,
+          minHeight: 26,
           cursor: canExpand ? "pointer" : "default",
           background: isFocused ? theme.highlight : "transparent",
           borderRadius: 2,
@@ -243,13 +270,25 @@ function TreeNodeView({
         },
         node.displayStr
       ),
+      node.nativeDisplay && React.createElement(
+        "span",
+        {
+          style: {
+            color: theme.fgMuted,
+            marginLeft: 8,
+            fontSize: '0.9em',
+            fontStyle: 'italic',
+          }
+        },
+        ` → ${node.nativeDisplay}`
+      ),
       icon && React.createElement(
         "span",
         {
           style: {
             color: theme.accent2,
             marginLeft: 6,
-            fontSize: 11
+            fontSize: 13
           }
         },
         icon
@@ -268,7 +307,6 @@ function App() {
   const [nextTreeIndex, setNextTreeIndex] = React.useState(0);
 
   const [input, setInput] = React.useState("");
-  const [error, setError] = React.useState(null);
   const [settings, setSettings] = React.useState({ defaultExpand: 2, additionalExpand: 1 });
   const [themeKey, setThemeKey] = React.useState("dark");
   const [focusIdx, setFocusIdx] = React.useState(-1);
@@ -285,6 +323,16 @@ function App() {
   const containerRef = React.useRef(null);
 
   const theme = THEMES[themeKey];
+
+  const addOutput = React.useCallback((message, type = 'info') => {
+    setItems(prev => [...prev, {
+      id: nextItemId,
+      type: 'output',
+      message: message,
+      outputType: type,
+    }]);
+    setNextItemId(id => id + 1);
+  }, [nextItemId]);
 
   const getTreeEntries = React.useCallback(() => {
     return items.filter(item => item.type === 'tree');
@@ -303,6 +351,7 @@ function App() {
 
       const canExpand = manager.canExpandNode ? manager.canExpandNode(nodeId) : false;
       const hasMore = canExpand && node.children.length < 100;
+      const isHelp = manager.notationKey === 'help';
 
       nav.push({
         type: "node",
@@ -316,19 +365,28 @@ function App() {
       });
 
       if (node.isExpanded) {
-        const childrenList = node.children;
+        const childrenList = isHelp ? [...node.children].reverse() : node.children;
         const n = childrenList.length;
 
-        if (hasMore) {
+        if (hasMore && !isHelp) {
           nav.push({
             type: "more",
             parentId: node.id,
             treeIndex: treeIndex,
           });
         }
+
         for (let i = 0; i < n; i++) {
           const cid = childrenList[i];
           walkNode(manager, cid, treeIndex);
+        }
+
+        if (hasMore && isHelp) {
+          nav.push({
+            type: "more",
+            parentId: node.id,
+            treeIndex: treeIndex,
+          });
         }
       }
     }
@@ -353,15 +411,6 @@ function App() {
     setItems(prev => [...prev]);
   }, []);
 
-  const addLog = React.useCallback((message) => {
-    setItems(prev => [...prev, {
-      id: nextItemId,
-      type: 'log',
-      message: message,
-    }]);
-    setNextItemId(id => id + 1);
-  }, [nextItemId]);
-
   const doExpand = React.useCallback((treeIndex, nodeId, count) => {
     let expanded = 0;
     const entry = findTreeByIndex(treeIndex);
@@ -373,14 +422,14 @@ function App() {
     while (node.expansionCount < target) {
       const result = mgr.expandNode(nodeId, {});
       if (!result.success) {
-        addLog(`展开失败: ${result.message}`);
+        addOutput(`展开失败: ${result.message}`, 'error');
         break;
       }
       expanded++;
     }
     refreshUI();
     return expanded;
-  }, [findTreeByIndex, addLog, refreshUI]);
+  }, [findTreeByIndex, addOutput, refreshUI]);
 
   const onToggle = React.useCallback((treeIndex, id) => {
     const entry = findTreeByIndex(treeIndex);
@@ -389,7 +438,7 @@ function App() {
     const node = mgr.getNode(id);
     if (!node) return;
     if (!mgr.canExpandNode(id)) {
-      addLog(`节点不可展开（预判失败）`);
+      addOutput(`节点不可展开（预判失败）`, 'error');
       return;
     }
     if (!node.hasExpanded) {
@@ -398,12 +447,12 @@ function App() {
     } else {
       const result = mgr.toggleNode(id);
       if (!result.success) {
-        addLog(`切换失败: ${result.message}`);
+        addOutput(`切换失败: ${result.message}`, 'error');
       } else {
         refreshUI();
       }
     }
-  }, [findTreeByIndex, refreshUI, addLog, doExpand]);
+  }, [findTreeByIndex, refreshUI, addOutput, doExpand]);
 
   const onMore = React.useCallback((treeIndex, id) => {
     const entry = findTreeByIndex(treeIndex);
@@ -413,147 +462,163 @@ function App() {
     if (node && mgr.canExpandNode(id)) {
       doExpand(treeIndex, id, settings.additionalExpand);
     } else {
-      addLog(`节点不可展开，无法加载更多`);
+      addOutput(`节点不可展开，无法加载更多`, 'error');
     }
-  }, [findTreeByIndex, settings.additionalExpand, doExpand, addLog]);
+  }, [findTreeByIndex, settings.additionalExpand, doExpand, addOutput]);
 
   const handleSubmit = React.useCallback(async () => {
     const raw = input.trim();
     if (!raw) return;
 
-    if (raw.startsWith("/")) {
-      setInput("");
-      setError(null);
+    setInput("");
+    addOutput(`▸ ${raw}`, 'input');
 
-      if (raw === "/help") {
-        try {
-          const resp = await fetch('help.txt');
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          const text = await resp.text();
-          const lines = text.split(/\r?\n/);
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (trimmed !== '') {
-              addLog(`» ${trimmed}`);
+    if (raw.startsWith("/")) {
+      const parsed = parseCommand(raw);
+      switch (parsed.command) {
+        case 'help': {
+          try {
+            const resp = await fetch('help.txt');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const text = await resp.text();
+            const lines = text.split(/\r?\n/);
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (trimmed !== '') {
+                addOutput(`» ${trimmed}`, 'info');
+              }
+            }
+          } catch (err) {
+            addOutput(`» 加载帮助文件失败: ${err.message}`, 'error');
+          }
+          return;
+        }
+        case 'clear': {
+          setItems([]);
+          setNextItemId(0);
+          setNextTreeIndex(0);
+          setFocusIdx(-1);
+          return;
+        }
+        case 'list': {
+          const avail = Object.keys(NOTATION_REGISTRY).map(k => NOTATION_REGISTRY[k].name).join(', ');
+          addOutput(`» 已注册记号: ${avail || '无'}`, 'info');
+          return;
+        }
+        case 'set': {
+          const key = parsed.key;
+          const valStr = parsed.value;
+          if (key === 'theme') {
+            const themeMap = {
+              dark: "dark",
+              light: "light",
+              paper: "paper",
+              solarizedlight: "solarizedLight",
+              sollight: "solarizedLight",
+              sl: "solarizedLight",
+              solarizeddark: "solarizedDark",
+              soldark: "solarizedDark",
+              sd: "solarizedDark"
+            };
+            const tk = themeMap[valStr.toLowerCase().replace(/[\s.]+/g, "")];
+            if (tk) {
+              setThemeKey(tk);
+              addOutput(`» Theme: ${THEMES[tk].name}`, 'info');
+            } else {
+              addOutput(`未知主题: ${valStr}`, 'error');
+            }
+          } else {
+            const val = parseInt(valStr, 10);
+            if (isNaN(val) || val < 1) {
+              addOutput(`无效数值: ${valStr}`, 'error');
+              return;
+            }
+            if (key === 'default_expand' || key === 'default') {
+              setSettings((s) => ({ ...s, defaultExpand: val }));
+              addOutput(`» default expand = ${val}`, 'info');
+            } else if (key === 'additional_expand' || key === 'additional') {
+              setSettings((s) => ({ ...s, additionalExpand: val }));
+              addOutput(`» additional expand = ${val}`, 'info');
+            } else {
+              addOutput(`未知设置: ${key}`, 'error');
             }
           }
-        } catch (err) {
-          addLog(`» 加载帮助文件失败: ${err.message}`);
+          return;
         }
-        return;
-      }
-      if (raw === "/clear") {
-        setItems([]);
-        setNextItemId(0);
-        setNextTreeIndex(0);
-        setFocusIdx(-1);
-        return;
-      }
-      if (raw === "/list") {
-        const avail = Object.keys(NOTATION_REGISTRY).map(k => NOTATION_REGISTRY[k].name).join(', ');
-        addLog(`» 已注册记号: ${avail || '无'}`);
-        return;
-      }
-      const setMatch = raw.match(/^\/set\s+(\w+)\s*=\s*(.+)$/i);
-      if (setMatch) {
-        const key = setMatch[1].toLowerCase();
-        const valStr = setMatch[2].trim();
-        const themeMap = {
-          dark: "dark",
-          light: "light",
-          paper: "paper",
-          solarizedlight: "solarizedLight",
-          sollight: "solarizedLight",
-          sl: "solarizedLight",
-          solarizeddark: "solarizedDark",
-          soldark: "solarizedDark",
-          sd: "solarizedDark"
-        };
-        if (key === "theme") {
-          const tk = themeMap[valStr.toLowerCase().replace(/[\s.]+/g, "")];
-          if (tk) { setThemeKey(tk);
-            addLog(`» Theme: ${THEMES[tk].name}`); } else setError(`Unknown theme.`);
-        } else {
-          const val = parseInt(valStr, 10);
-          if (isNaN(val) || val < 1) { setError(`Invalid value: ${valStr}`); return; }
-          if (key === "default_expand" || key === "default") {
-            setSettings((s) => ({ ...s, defaultExpand: val }));
-            addLog(`» default expand = ${val}`);
-          } else if (key === "additional_expand" || key === "additional") {
-            setSettings((s) => ({ ...s, additionalExpand: val }));
-            addLog(`» additional expand = ${val}`);
-          } else {
-            setError(`Unknown setting: ${key}`);
-          }
+        default: {
+          addOutput(`未知命令: ${raw}`, 'error');
+          return;
         }
-        return;
       }
-      setError(`未知命令: ${raw}`);
-      return;
     }
 
     try {
-      const { notationKey, rawName, inner } = parseInput(raw);
-      loadNotation(notationKey).then((mod) => {
-        let expr;
-        let isPlaceholder = false;
-        if (inner === 'LIMIT_PLACEHOLDER') {
-          expr = null;
-          isPlaceholder = true;
-        } else {
-          try {
-            expr = mod.parse(inner);
-          } catch (parseErr) {
-            setError(`解析失败: ${parseErr.message || String(parseErr)}`);
-            return;
-          }
+      const parsed = parseNotation(raw);
+      const { notationKey, rawName, inner, fromOrdinal } = parsed;
+
+      if (fromOrdinal) {
+        addOutput(`» ${raw} → PrSS ${inner}`, 'conversion');
+      }
+
+      const mod = await loadNotation(notationKey);
+
+      let expr;
+      let isPlaceholder = false;
+      if (inner === 'LIMIT_PLACEHOLDER') {
+        expr = null;
+        isPlaceholder = true;
+      } else {
+        try {
+          expr = mod.parse(inner);
+        } catch (parseErr) {
+          addOutput(`解析失败: ${parseErr.message || String(parseErr)}`, 'error');
+          return;
         }
+      }
 
-        const adapter = createNotationAdapter(mod, notationKey);
-        const manager = new TreeManager(adapter);
-        if (isPlaceholder) {
-          manager.initPlaceholder();
-        } else {
-          manager.init(expr);
+      const adapter = createNotationAdapter(mod, notationKey);
+      const manager = new TreeManager(adapter);
+
+      if (isPlaceholder) {
+        manager.initPlaceholder();
+      } else {
+        manager.init(expr);
+      }
+
+      const root = manager.getRoot();
+      if (settings.defaultExpand > 0) {
+        let expanded = 0;
+        const target = settings.defaultExpand;
+        while (expanded < target) {
+          if (!manager.canExpandNode(root.id)) break;
+          const result = manager.expandNode(root.id, {});
+          if (!result.success) break;
+          expanded++;
         }
+      }
 
-        const root = manager.getRoot();
-        if (settings.defaultExpand > 0) {
-          let expanded = 0;
-          const target = settings.defaultExpand;
-          while (expanded < target) {
-            if (!manager.canExpandNode(root.id)) break;
-            const result = manager.expandNode(root.id, {});
-            if (!result.success) break;
-            expanded++;
-          }
-        }
+      const treeIndex = nextTreeIndex;
+      setNextTreeIndex(idx => idx + 1);
 
-        const treeIndex = nextTreeIndex;
-        setNextTreeIndex(idx => idx + 1);
+      setItems(prev => [...prev, {
+        id: nextItemId,
+        type: 'tree',
+        treeIndex: treeIndex,
+        manager: manager,
+        notationKey: notationKey,
+        rootId: root.id,
+      }]);
+      setNextItemId(id => id + 1);
 
-        setItems(prev => [...prev, {
-          id: nextItemId,
-          type: 'tree',
-          treeIndex: treeIndex,
-          manager: manager,
-          notationKey: notationKey,
-          rootId: root.id,
-        }]);
-        setNextItemId(id => id + 1);
+      setFocusIdx(-1);
+      setNotationNames(prev => ({ ...prev, [notationKey]: rawName }));
 
-        setFocusIdx(-1);
-        setError(null);
-        setNotationNames(prev => ({ ...prev, [notationKey]: rawName }));
-        setInput("");
-      }).catch((err) => {
-        setError(`加载记号失败: ${err.message || String(err)}`);
-      });
     } catch (err) {
-      setError(err.message);
+      addOutput(`错误: ${err.message}`, 'error');
     }
-  }, [input, settings, addLog, nextItemId, nextTreeIndex]);
+  }, [input, settings, addOutput, nextItemId, nextTreeIndex]);
 
+  // ===== 键盘事件 =====
   const handleGlobalKey = React.useCallback((e) => {
     const nav = collectNavItems();
     const total = nav.length;
@@ -595,9 +660,10 @@ function App() {
       if (!mgr) return false;
       const parent = mgr.getNode(pid);
       if (!parent) return false;
-      const children = parent.children;
-      if (n >= 0 && n < children.length) {
-        const targetId = children[n];
+      const isHelp = mgr.notationKey === 'help';
+      const childrenList = isHelp ? [...parent.children].reverse() : parent.children;
+      if (n >= 0 && n < childrenList.length) {
+        const targetId = childrenList[n];
         const idx = nav.findIndex(ni => ni.type === "node" && ni.id === targetId && ni.treeIndex === item?.treeIndex);
         if (idx >= 0) { setFocusIdx(idx); return true; }
       }
@@ -663,10 +729,14 @@ function App() {
   }, [items]);
 
   const renderItems = items.map((item) => {
-    if (item.type === 'log') {
+    if (item.type === 'output') {
+      let color = theme.logColor;
+      if (item.outputType === 'error') color = theme.error;
+      else if (item.outputType === 'conversion') color = theme.accent;
+      else if (item.outputType === 'input') color = theme.fg;
       return React.createElement("div", {
-        key: `log-${item.id}`,
-        style: { color: theme.logColor, minHeight: 22, display: "flex", alignItems: "baseline" }
+        key: `output-${item.id}`,
+        style: { color, minHeight: 26, display: "flex", alignItems: "baseline" }
       },
         React.createElement("span", null, item.message)
       );
@@ -681,7 +751,7 @@ function App() {
         style: { marginTop: 4 }
       },
         React.createElement("div", {
-          style: { color: theme.fgMuted, fontSize: 11, marginBottom: 2 }
+          style: { color: theme.fgMuted, fontSize: 13, marginBottom: 2 }
         },
           `--- 树 #${item.treeIndex+1} (${notationNames[item.notationKey] || item.notationKey}) ---`
         ),
@@ -704,8 +774,6 @@ function App() {
     return null;
   });
 
-  const availableNotations = Object.keys(NOTATION_REGISTRY).map(k => NOTATION_REGISTRY[k].name).join(' ');
-
   return React.createElement(
     "div", {
       ref: containerRef,
@@ -716,13 +784,14 @@ function App() {
         color: theme.fg,
         height: "100vh",
         fontFamily: "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace",
-        fontSize: 13,
+        fontSize: 16,
         display: "flex",
         flexDirection: "column",
         outline: "none"
       }
     },
     React.createElement("link", { href: "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap", rel: "stylesheet" }),
+    // ========== 头部 ==========
     React.createElement("div", { style: {
         padding: "8px 16px",
         borderBottom: `1px solid ${theme.border}`,
@@ -734,13 +803,9 @@ function App() {
         gap: 4,
         flexShrink: 0
       } },
-      React.createElement("span", { style: { fontWeight: 700, fontSize: 14, color: theme.accent } }, "记号展开器 (CLI 风格)"),
+      React.createElement("span", { style: { fontWeight: 700, fontSize: 18, color: theme.accent } }, "记号展开器 (CLI 风格)"),
       React.createElement("div", { style: { display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" } },
-        React.createElement("span", { style: { fontSize: 10, color: theme.settingColor, marginRight: 4 } },
-          "记号:"),
-        React.createElement("span", { style: { fontSize: 11, color: theme.fgDim, fontWeight: 500 } },
-          availableNotations || "无"),
-        React.createElement("span", { style: { fontSize: 11, color: theme.settingColor, marginLeft: 8 } },
+        React.createElement("span", { style: { fontSize: 12, color: theme.settingColor } },
           "def=", settings.defaultExpand, " +", settings.additionalExpand
         ),
         Object.keys(THEMES).map((k) => React.createElement(
@@ -752,8 +817,8 @@ function App() {
               color: k === themeKey ? theme.bg : theme.fgDim,
               border: `1px solid ${k === themeKey ? theme.accent : theme.border}`,
               borderRadius: 3,
-              padding: "2px 6px",
-              fontSize: 10,
+              padding: "2px 8px",
+              fontSize: 12,
               cursor: "pointer",
               fontFamily: "inherit"
             }
@@ -762,6 +827,7 @@ function App() {
         ))
       )
     ),
+    // ========== 滚动区域 ==========
     React.createElement(
       "div", {
         ref: scrollRef,
@@ -772,23 +838,22 @@ function App() {
         }
       },
       renderItems,
+      // ===== 输入框区域（已去除上方边距和分隔线，完全融入） =====
       React.createElement("div", { style: {
           display: "flex",
           flexDirection: "column",
-          marginTop: 8,
-          paddingTop: 8,
-          borderTop: `1px solid ${theme.border}`
+          // 去掉 marginTop, paddingTop, borderTop
         } },
         React.createElement("div", { style: {
             display: "flex",
             alignItems: "baseline",
-            minHeight: 28,
+            minHeight: 32,
             background: focusedItem?.type === "input" ? theme.highlight : "transparent",
             margin: "0 -4px",
             padding: "0 4px",
             borderRadius: 2
           } },
-          React.createElement("span", { style: { color: theme.accent, userSelect: "none", marginRight: 4 } },
+          React.createElement("span", { style: { color: theme.accent, userSelect: "none", marginRight: 6, fontSize: 18 } },
             "▸"),
           React.createElement(
             "input", {
@@ -796,7 +861,6 @@ function App() {
               value: input,
               onChange: (e) => {
                 setInput(e.target.value);
-                setError(null);
               },
               onKeyDown: (e) => {
                 if (e.key === "Enter") {
@@ -805,7 +869,7 @@ function App() {
                 }
               },
               onFocus: () => setFocusIdx(navItems.length - 1),
-              placeholder: `输入 记号名(表达式)，如 PrSS(0,1,2) 或直接输入 BMS 创建占位极限  (可用: ${availableNotations})`,
+              placeholder: `输入 记号名(表达式)，如 PrSS(0,1,2) 或直接输入 BMS 创建占位极限`,
               autoFocus: true,
               style: {
                 flex: 1,
@@ -814,28 +878,26 @@ function App() {
                 outline: "none",
                 color: theme.fg,
                 fontFamily: "inherit",
-                fontSize: 13,
+                fontSize: 16,
                 caretColor: theme.accent
               }
             }
           )
-        ),
-        error && React.createElement("div", { style: { color: theme.error, fontSize: 12, marginTop: 2,
-            paddingLeft: 18 } }, error)
+        )
       )
     ),
+    // ========== 底部状态栏 ==========
     React.createElement("div", { style: {
         padding: "6px 16px",
         borderTop: `1px solid ${theme.border}`,
-        fontSize: 11,
+        fontSize: 13,
         color: theme.settingColor,
         display: "flex",
         flexWrap: "wrap",
         gap: "0 12px",
         flexShrink: 0
       } },
-      "↑↓导航 · ←→折叠 · , 父节点 · 0-9 FS[n] · += 更多 · Esc 输入框 · /help",
-      React.createElement("span", { style: { color: theme.fgMuted } }, " | 可用记号: ", availableNotations)
+      "↑↓导航 · ←→折叠 · , 父节点 · 0-9 FS[n] · += 更多 · Esc 输入框 · help"
     )
   );
 }
