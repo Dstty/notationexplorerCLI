@@ -5,7 +5,7 @@ const NOTATION_REGISTRY = {
   help: {
     name: 'help',          // 显示名称，可自定义
     load: () => import('./notation/Help.js'),
-  }
+  },
   prss: {
     name: 'PrSS',
     load: () => import('./notation/PrSS.js'),
