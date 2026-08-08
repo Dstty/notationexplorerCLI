@@ -29,9 +29,8 @@ function buildRenderNode(manager, nodeId, notationKey, notationNames, treeIndex)
   const rawMod = notationCache.get(notationKey);
   const mod = rawMod ? createNotationAdapter(rawMod, notationKey) : null;
 
-  // ★ help 极限只显示 "help"
   if (node.type === 'LIMIT' && notationKey === 'help') {
-    displayStr = notName;
+    displayStr = '📖 帮助文档';
   } else if (node.data === null && node.type === 'LIMIT') {
     displayStr = `Limit ${notName}`;
   } else if (node.error) {
@@ -40,12 +39,12 @@ function buildRenderNode(manager, nodeId, notationKey, notationNames, treeIndex)
     try {
       if (mod && typeof mod.display === 'function') {
         const inner = mod.display(node.data, false);
-        displayStr = `${notName}(${inner})`;
+        displayStr = `${notName} ${inner}`;
       } else {
-        displayStr = `${notName}(...)`;
+        displayStr = `${notName} ...`;
       }
     } catch {
-      displayStr = `${notName}(...)`;
+      displayStr = `${notName} ...`;
     }
   } else {
     try {
@@ -90,6 +89,7 @@ function buildRenderNode(manager, nodeId, notationKey, notationNames, treeIndex)
     notationKey,
     treeIndex,
     canActuallyExpand,
+    note: node.note || null,
   };
 }
 
@@ -105,9 +105,15 @@ function TreeNodeView({
   onMore,
   notationNames,
   fsIndex,
+  editingNote,
+  startNoteEditing,
+  saveNote,
+  cancelNoteEditing,
 }) {
   const ref = React.useRef(null);
   const moreRef = React.useRef(null);
+  const inputRef = React.useRef(null);
+  const cancelRef = React.useRef(false);
 
   const canExpand = !node.error && node.canActuallyExpand;
   const hasMore = canExpand && (node.children.length < 100);
@@ -115,6 +121,10 @@ function TreeNodeView({
   const isMoreFocused = focusedItem?.type === "more" && focusedItem.parentId === node.id && focusedItem.treeIndex === node.treeIndex;
 
   const isHelp = node.notationKey === 'help';
+  const hasExpanded = node.hasExpanded;
+
+  const isEditing = editingNote && editingNote.treeIndex === node.treeIndex && editingNote.nodeId === node.id;
+  const noteText = node.note || '';
 
   React.useEffect(() => {
     if (isFocused && ref.current) ref.current.scrollIntoView({ block: "nearest" });
@@ -122,22 +132,64 @@ function TreeNodeView({
   React.useEffect(() => {
     if (isMoreFocused && moreRef.current) moreRef.current.scrollIntoView({ block: "nearest" });
   }, [isMoreFocused]);
+  React.useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
 
   const connector = fsIndex !== undefined ? (isLast ? LAST_B : BRANCH) : "▸ ";
   const prefix = prefixes.join("");
 
   let icon = null;
-  if (canExpand) {
-    if (!node.hasExpanded) {
-      icon = "⊕";
-    } else {
-      icon = node.isExpanded ? "⊖" : "⊕";
-    }
+  if (hasExpanded) {
+    icon = node.isExpanded ? "[-]" : "[+]";
+  } else if (canExpand) {
+    icon = "[+]";
   }
+
+  const setFocusToNode = () => {
+    const idx = navItems.findIndex((n) => n.type === "node" && n.id === node.id && n.treeIndex === node.treeIndex);
+    if (idx >= 0) setFocusIdx(idx);
+  };
+
+  const handleTextClick = () => {
+    setFocusToNode();
+    if (hasExpanded) {
+      if (node.isExpanded) {
+        if (hasMore) {
+          onMore(node.treeIndex, node.id);
+        }
+      } else {
+        onToggle(node.treeIndex, node.id);
+      }
+      return;
+    }
+    if (canExpand) {
+      onToggle(node.treeIndex, node.id);
+    }
+  };
+
+  const handleIconClick = (e) => {
+    e.stopPropagation();
+    setFocusToNode();
+    if (hasExpanded || canExpand) {
+      onToggle(node.treeIndex, node.id);
+    }
+  };
+
+  const handleNoteButtonClick = (e) => {
+    e.stopPropagation();
+    setFocusToNode();
+    if (isHelp) return;
+    if (!isEditing) {
+      startNoteEditing(node.treeIndex, node.id);
+    }
+  };
 
   const renderChildren = () => {
     if (!node.isExpanded) return null;
-
     const childrenList = isHelp ? [...node.children].reverse() : node.children;
     const n = childrenList.length;
     const elements = [];
@@ -147,7 +199,6 @@ function TreeNodeView({
         [...prefixes, isLast ? EMPTY : GUTTER] :
         [...prefixes, GUTTER];
       const moreConn = (n > 0) ? BRANCH : LAST_B;
-
       return React.createElement(
         "div", {
           ref: moreRef,
@@ -169,41 +220,25 @@ function TreeNodeView({
         },
         React.createElement(
           "span",
-          {
-            style: {
-              color: theme.fgMuted,
-              whiteSpace: "pre",
-              userSelect: "none"
-            }
-          },
+          { style: { color: theme.fgMuted, whiteSpace: "pre", userSelect: "none" } },
           morePrefixes.join(""),
           moreConn
         ),
         React.createElement(
           "span",
-          {
-            style: {
-              color: theme.moreColor,
-              fontStyle: "italic",
-              fontSize: 14
-            }
-          },
+          { style: { color: theme.moreColor, fontStyle: "italic", fontSize: 14 } },
           "… (点击或按 Enter)"
         )
       );
     };
 
-    if (hasMore && !isHelp) {
-      elements.push(renderMore());
-    }
-
+    if (hasMore && !isHelp) elements.push(renderMore());
     for (let i = 0; i < n; i++) {
       const child = childrenList[i];
       const isLastChild = (i === n - 1);
       const childPrefixes = (fsIndex !== undefined) ?
         [...prefixes, isLast ? EMPTY : GUTTER] :
         [...prefixes, GUTTER];
-
       elements.push(
         React.createElement(TreeNodeView, {
           key: child.id,
@@ -218,16 +253,92 @@ function TreeNodeView({
           onMore,
           notationNames,
           fsIndex: i,
+          editingNote,
+          startNoteEditing,
+          saveNote,
+          cancelNoteEditing,
         })
       );
     }
-
-    if (hasMore && isHelp) {
-      elements.push(renderMore());
-    }
-
+    if (hasMore && isHelp) elements.push(renderMore());
     return elements;
   };
+
+  // ---- 注释显示 / 编辑 ----
+  let noteElement = null;
+  if (isEditing) {
+    noteElement = React.createElement(
+      "input", {
+        ref: inputRef,
+        type: "text",
+        defaultValue: noteText,
+        onKeyDown: (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelRef.current = false;
+            saveNote(node.treeIndex, node.id, e.target.value);
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelRef.current = true;
+            cancelNoteEditing();
+          }
+        },
+        onBlur: (e) => {
+          if (cancelRef.current) {
+            cancelRef.current = false;
+            return;
+          }
+          saveNote(node.treeIndex, node.id, e.target.value);
+        },
+        style: {
+          background: "transparent",
+          border: "none",
+          outline: "none",
+          color: theme.noteColor,
+          fontFamily: "inherit",
+          fontSize: "1em",
+          marginLeft: 8,
+          padding: 0,
+          width: "240px",
+        },
+        placeholder: "注释…",
+        onClick: (e) => e.stopPropagation(),
+      }
+    );
+  } else if (noteText) {
+    noteElement = React.createElement(
+      "span",
+      {
+        style: {
+          color: theme.noteColor,
+          marginLeft: 6,
+          fontSize: "1em",
+          cursor: "pointer",
+        },
+        onClick: (e) => {
+          e.stopPropagation();
+          handleNoteButtonClick(e);
+        }
+      },
+      noteText
+    );
+  }
+
+  const noteButton = !isHelp && !isEditing ? React.createElement(
+    "span", {
+      style: {
+        color: theme.accent2,
+        marginLeft: 4,
+        fontSize: 13,
+        cursor: "pointer",
+        userSelect: "none",
+      },
+      onClick: handleNoteButtonClick,
+    },
+    "[✎]"
+  ) : null;
 
   return React.createElement("div", null,
     React.createElement(
@@ -237,62 +348,40 @@ function TreeNodeView({
           display: "flex",
           alignItems: "baseline",
           minHeight: 26,
-          cursor: canExpand ? "pointer" : "default",
+          cursor: (hasExpanded || canExpand) ? "pointer" : "pointer",
           background: isFocused ? theme.highlight : "transparent",
           borderRadius: 2,
           margin: "0 -4px",
           padding: "0 4px"
         },
-        onClick: () => {
-          if (canExpand) onToggle(node.treeIndex, node.id);
-          const idx = navItems.findIndex((n) => n.type === "node" && n.id === node.id && n.treeIndex === node.treeIndex);
-          if (idx >= 0) setFocusIdx(idx);
-        }
+        onClick: handleTextClick
       },
       React.createElement(
         "span",
-        {
-          style: {
-            color: theme.fgMuted,
-            whiteSpace: "pre",
-            userSelect: "none"
-          }
-        },
+        { style: { color: theme.fgMuted, whiteSpace: "pre", userSelect: "none" } },
         prefix,
         connector
       ),
       React.createElement(
         "span",
-        {
-          style: {
-            color: node.error ? theme.error : canExpand ? theme.fg : theme.fgDim
-          }
-        },
+        { style: { color: node.error ? theme.error : (hasExpanded || canExpand) ? theme.fg : theme.fgDim, whiteSpace: 'pre-wrap' } },
         node.displayStr
       ),
       node.nativeDisplay && React.createElement(
         "span",
-        {
-          style: {
-            color: theme.fgMuted,
-            marginLeft: 8,
-            fontSize: '0.9em',
-            fontStyle: 'italic',
-          }
-        },
+        { style: { color: theme.fgMuted, marginLeft: 8, fontSize: '0.9em', fontStyle: 'italic', whiteSpace: 'pre-wrap' } },
         ` → ${node.nativeDisplay}`
       ),
       icon && React.createElement(
         "span",
         {
-          style: {
-            color: theme.accent2,
-            marginLeft: 6,
-            fontSize: 13
-          }
+          style: { color: theme.accent2, marginLeft: 6, fontSize: 13, cursor: "pointer" },
+          onClick: handleIconClick
         },
         icon
-      )
+      ),
+      noteButton,
+      noteElement
     ),
     renderChildren()
   );
@@ -317,6 +406,7 @@ function App() {
     }
     return map;
   });
+  const [editingNote, setEditingNote] = React.useState(null);
 
   const scrollRef = React.useRef(null);
   const inputRef = React.useRef(null);
@@ -332,27 +422,30 @@ function App() {
       outputType: type,
     }]);
     setNextItemId(id => id + 1);
+    if (scrollRef.current) {
+      setTimeout(() => {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }, 0);
+    }
   }, [nextItemId]);
 
   const getTreeEntries = React.useCallback(() => {
     return items.filter(item => item.type === 'tree');
   }, [items]);
 
+  // ===== 关键定义：findTreeByIndex =====
   const findTreeByIndex = React.useCallback((treeIndex) => {
     return items.find(item => item.type === 'tree' && item.treeIndex === treeIndex) || null;
   }, [items]);
 
   const collectNavItems = React.useCallback(() => {
     const nav = [];
-
     function walkNode(manager, nodeId, treeIndex) {
       const node = manager.getNode(nodeId);
       if (!node) return;
-
       const canExpand = manager.canExpandNode ? manager.canExpandNode(nodeId) : false;
       const hasMore = canExpand && node.children.length < 100;
       const isHelp = manager.notationKey === 'help';
-
       nav.push({
         type: "node",
         id: node.id,
@@ -362,35 +455,17 @@ function App() {
         notationKey: manager.notationKey || '',
         error: !!node.error,
         treeIndex: treeIndex,
+        hasExpanded: node.hasExpanded,
+        note: node.note || null,
       });
-
       if (node.isExpanded) {
         const childrenList = isHelp ? [...node.children].reverse() : node.children;
         const n = childrenList.length;
-
-        if (hasMore && !isHelp) {
-          nav.push({
-            type: "more",
-            parentId: node.id,
-            treeIndex: treeIndex,
-          });
-        }
-
-        for (let i = 0; i < n; i++) {
-          const cid = childrenList[i];
-          walkNode(manager, cid, treeIndex);
-        }
-
-        if (hasMore && isHelp) {
-          nav.push({
-            type: "more",
-            parentId: node.id,
-            treeIndex: treeIndex,
-          });
-        }
+        if (hasMore && !isHelp) nav.push({ type: "more", parentId: node.id, treeIndex });
+        for (let i = 0; i < n; i++) walkNode(manager, childrenList[i], treeIndex);
+        if (hasMore && isHelp) nav.push({ type: "more", parentId: node.id, treeIndex });
       }
     }
-
     const treeEntries = getTreeEntries();
     for (const entry of treeEntries) {
       const root = entry.manager.getRoot();
@@ -398,7 +473,6 @@ function App() {
       entry.manager.notationKey = entry.notationKey;
       walkNode(entry.manager, root.id, entry.treeIndex);
     }
-
     nav.push({ type: "input" });
     return nav;
   }, [getTreeEntries]);
@@ -409,6 +483,35 @@ function App() {
 
   const refreshUI = React.useCallback(() => {
     setItems(prev => [...prev]);
+  }, []);
+
+  const startNoteEditing = React.useCallback((treeIndex, nodeId) => {
+    setEditingNote({ treeIndex, nodeId });
+  }, []);
+
+  const saveNote = React.useCallback((treeIndex, nodeId, text) => {
+    if (!editingNote || editingNote.treeIndex !== treeIndex || editingNote.nodeId !== nodeId) {
+      return;
+    }
+    const entry = findTreeByIndex(treeIndex);
+    if (!entry) return;
+    const mgr = entry.manager;
+    const node = mgr.getNode(nodeId);
+    if (!node) return;
+    const trimmed = text.trim();
+    if (trimmed === '') {
+      delete node.note;
+    } else {
+      node.note = trimmed;
+    }
+    setEditingNote(null);
+    refreshUI();
+    containerRef.current?.focus();
+  }, [editingNote, findTreeByIndex, refreshUI]);
+
+  const cancelNoteEditing = React.useCallback(() => {
+    setEditingNote(null);
+    containerRef.current?.focus();
   }, []);
 
   const doExpand = React.useCallback((treeIndex, nodeId, count) => {
@@ -437,8 +540,8 @@ function App() {
     const mgr = entry.manager;
     const node = mgr.getNode(id);
     if (!node) return;
-    if (!mgr.canExpandNode(id)) {
-      addOutput(`节点不可展开（预判失败）`, 'error');
+    if (!node.hasExpanded && !mgr.canExpandNode(id)) {
+      addOutput(`节点不可展开`, 'error');
       return;
     }
     if (!node.hasExpanded) {
@@ -454,22 +557,177 @@ function App() {
     }
   }, [findTreeByIndex, refreshUI, addOutput, doExpand]);
 
+  // ========================================================================
+  //  修正后的 onMore：仅 help 树更多按钮展开后保持焦点，完全展开后聚焦到最后一个子节点
+  // ========================================================================
   const onMore = React.useCallback((treeIndex, id) => {
     const entry = findTreeByIndex(treeIndex);
     if (!entry) return;
     const mgr = entry.manager;
     const node = mgr.getNode(id);
     if (node && mgr.canExpandNode(id)) {
-      doExpand(treeIndex, id, settings.additionalExpand);
+      const expanded = doExpand(treeIndex, id, settings.additionalExpand);
+      // 只有 help 树且成功展开时，才处理焦点
+      if (expanded > 0 && entry.notationKey === 'help') {
+        setTimeout(() => {
+          const nav = collectNavItems();
+          // 1. 尝试找到“更多”按钮（可能还存在）
+          const moreIdx = nav.findIndex(n => n.type === "more" && n.parentId === id && n.treeIndex === treeIndex);
+          if (moreIdx !== -1) {
+            setFocusIdx(moreIdx);
+          } else {
+            // 2. “更多”按钮消失（已完全展开），聚焦到该父节点的最后一个子节点
+            const childNodes = nav.filter(n => n.type === "node" && n.parentId === id && n.treeIndex === treeIndex);
+            if (childNodes.length > 0) {
+              const lastChild = childNodes[childNodes.length - 1];
+              const idx = nav.indexOf(lastChild);
+              if (idx !== -1) setFocusIdx(idx);
+            } else {
+              // 3. 极端情况：无子节点，回退到父节点
+              const parentIdx = nav.findIndex(n => n.type === "node" && n.id === id && n.treeIndex === treeIndex);
+              if (parentIdx !== -1) setFocusIdx(parentIdx);
+            }
+          }
+        }, 0);
+      }
     } else {
       addOutput(`节点不可展开，无法加载更多`, 'error');
     }
-  }, [findTreeByIndex, settings.additionalExpand, doExpand, addOutput]);
+  }, [findTreeByIndex, settings.additionalExpand, doExpand, addOutput, collectNavItems, setFocusIdx]);
 
+  // ========================================================================
+  //  /save 处理函数（禁止保存 help 树）
+  // ========================================================================
+  const handleSaveCommand = React.useCallback((parsedNum) => {
+    const treeEntries = getTreeEntries();
+    if (treeEntries.length === 0) {
+      addOutput('没有可保存的树', 'error');
+      return;
+    }
+
+    let targetEntry = null;
+    if (parsedNum !== undefined) {
+      const idx = parsedNum - 1;
+      targetEntry = treeEntries.find(entry => entry.treeIndex === idx);
+      if (!targetEntry) {
+        addOutput(`找不到第 ${parsedNum} 棵树`, 'error');
+        return;
+      }
+    } else {
+      const maxIdx = Math.max(...treeEntries.map(e => e.treeIndex));
+      targetEntry = treeEntries.find(e => e.treeIndex === maxIdx);
+    }
+
+    if (targetEntry.notationKey === 'help') {
+      addOutput('无法保存帮助树（help）', 'error');
+      return;
+    }
+
+    const manager = targetEntry.manager;
+    const notationKey = targetEntry.notationKey;
+    const root = manager.getRoot();
+    if (!root) {
+      addOutput('树根节点不存在', 'error');
+      return;
+    }
+
+    const rawMod = notationCache.get(notationKey);
+    const mod = rawMod ? createNotationAdapter(rawMod, notationKey) : null;
+    const notName = notationNames[notationKey] || notationKey;
+
+    const allNodes = [];
+    function collect(nodeId) {
+      const node = manager.getNode(nodeId);
+      if (!node) return;
+      allNodes.push(node);
+      for (const childId of node.children) {
+        collect(childId);
+      }
+    }
+    collect(root.id);
+
+    if (allNodes.length === 0) {
+      addOutput('该树没有任何节点', 'error');
+      return;
+    }
+
+    const reversed = allNodes.reverse();
+
+    function getNodeDisplay(node) {
+      if (node.error) {
+        return `Error: ${node.error}`;
+      }
+      if (node.type === 'LIMIT') {
+        if (notationKey === 'help') {
+          return '📖 帮助文档';
+        }
+        if (node.data === null) {
+          return `Limit ${notName}`;
+        }
+        try {
+          if (mod && typeof mod.display === 'function') {
+            const inner = mod.display(node.data, false);
+            return `${notName} ${inner}`;
+          } else {
+            return `${notName} ...`;
+          }
+        } catch {
+          return `${notName} ...`;
+        }
+      } else {
+        try {
+          if (mod && typeof mod.display === 'function') {
+            return mod.display(node.data, true);
+          } else {
+            return String(node.data);
+          }
+        } catch {
+          return String(node.data);
+        }
+      }
+    }
+
+    function escapeCSV(str) {
+      if (str === undefined || str === null) return '';
+      const s = String(str);
+      if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    }
+
+    const rows = reversed.map(node => {
+      const displayStr = getNodeDisplay(node);
+      const noteStr = node.note || '';
+      return [escapeCSV(displayStr), escapeCSV(noteStr)];
+    });
+
+    const csvContent = rows.map(row => row.join(',')).join('\n');
+
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const timestamp = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const filename = `${notName}_${timestamp}.csv`;
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    addOutput(`✅ 已保存树 #${targetEntry.treeIndex + 1} 为 ${filename} (${reversed.length} 个节点)`, 'info');
+  }, [getTreeEntries, addOutput, notationNames, notationCache, createNotationAdapter]);
+
+  // ==========================================================================
+  //  原有 handleSubmit
+  // ==========================================================================
   const handleSubmit = React.useCallback(async () => {
     const raw = input.trim();
     if (!raw) return;
-
     setInput("");
     addOutput(`▸ ${raw}`, 'input');
 
@@ -484,9 +742,7 @@ function App() {
             const lines = text.split(/\r?\n/);
             for (const line of lines) {
               const trimmed = line.trim();
-              if (trimmed !== '') {
-                addOutput(`» ${trimmed}`, 'info');
-              }
+              if (trimmed !== '') addOutput(`» ${trimmed}`, 'info');
             }
           } catch (err) {
             addOutput(`» 加载帮助文件失败: ${err.message}`, 'error');
@@ -545,6 +801,10 @@ function App() {
           }
           return;
         }
+        case 'save': {
+          handleSaveCommand(parsed.num);
+          return;
+        }
         default: {
           addOutput(`未知命令: ${raw}`, 'error');
           return;
@@ -555,13 +815,10 @@ function App() {
     try {
       const parsed = parseNotation(raw);
       const { notationKey, rawName, inner, fromOrdinal } = parsed;
-
       if (fromOrdinal) {
         addOutput(`» ${raw} → PrSS ${inner}`, 'conversion');
       }
-
       const mod = await loadNotation(notationKey);
-
       let expr;
       let isPlaceholder = false;
       if (inner === 'LIMIT_PLACEHOLDER') {
@@ -575,16 +832,13 @@ function App() {
           return;
         }
       }
-
       const adapter = createNotationAdapter(mod, notationKey);
       const manager = new TreeManager(adapter);
-
       if (isPlaceholder) {
         manager.initPlaceholder();
       } else {
         manager.init(expr);
       }
-
       const root = manager.getRoot();
       if (settings.defaultExpand > 0) {
         let expanded = 0;
@@ -596,10 +850,8 @@ function App() {
           expanded++;
         }
       }
-
       const treeIndex = nextTreeIndex;
       setNextTreeIndex(idx => idx + 1);
-
       setItems(prev => [...prev, {
         id: nextItemId,
         type: 'tree',
@@ -609,21 +861,52 @@ function App() {
         rootId: root.id,
       }]);
       setNextItemId(id => id + 1);
-
       setFocusIdx(-1);
       setNotationNames(prev => ({ ...prev, [notationKey]: rawName }));
-
     } catch (err) {
       addOutput(`错误: ${err.message}`, 'error');
     }
-  }, [input, settings, addOutput, nextItemId, nextTreeIndex]);
+  }, [input, settings, addOutput, nextItemId, nextTreeIndex, handleSaveCommand]);
 
-  // ===== 键盘事件 =====
+  // ===== 键盘事件（增加 help 树注释拦截） =====
   const handleGlobalKey = React.useCallback((e) => {
+    if (editingNote) {
+      const isUp = e.key === "ArrowUp";
+      const isDown = e.key === "ArrowDown";
+      if (isUp || isDown) {
+        e.preventDefault();
+        const active = document.activeElement;
+        if (active && active.tagName === 'INPUT') {
+          const text = active.value;
+          const { treeIndex, nodeId } = editingNote;
+          saveNote(treeIndex, nodeId, text);
+        } else {
+          cancelNoteEditing();
+        }
+        const nav = collectNavItems();
+        const total = nav.length;
+        const cur = focusIdx;
+        const validCur = (cur >= 0 && cur < total) ? cur : (total > 0 ? total - 1 : -1);
+        let next;
+        if (isUp) {
+          next = validCur > 0 ? validCur - 1 : 0;
+        } else {
+          next = validCur < total - 1 ? validCur + 1 : total - 1;
+        }
+        setFocusIdx(next);
+        if (nav[next]?.type === "input") {
+          inputRef.current?.focus();
+        } else {
+          containerRef.current?.focus();
+        }
+      }
+      return;
+    }
+
     const nav = collectNavItems();
     const total = nav.length;
-    const cur = clampedFocus;
-    const item = cur >= 0 && cur < total ? nav[cur] : null;
+    const cur = focusIdx >= 0 && focusIdx < total ? focusIdx : -1;
+    const item = cur >= 0 ? nav[cur] : null;
 
     if (e.key === "Escape") {
       setFocusIdx(total - 1);
@@ -639,6 +922,20 @@ function App() {
         e.preventDefault();
       }
       return;
+    }
+
+    // help 树禁止注释快捷键
+    if (e.key === "n" || e.key === "N") {
+      if (item?.type === "node") {
+        if (item.notationKey === 'help') {
+          addOutput('帮助树无法添加注释', 'error');
+          e.preventDefault();
+          return;
+        }
+        startNoteEditing(item.treeIndex, item.id);
+        e.preventDefault();
+        return;
+      }
     }
 
     function getMgr(treeIndex) {
@@ -709,24 +1006,26 @@ function App() {
       goParent();
       e.preventDefault();
     } else if (e.key === "Enter" || e.key === " ") {
-      if (item?.type === "node" && item.canExpand) { onToggle(item.treeIndex, item.id);
-        e.preventDefault(); } else if (item?.type === "more") { onMore(item.treeIndex, item.parentId);
-        e.preventDefault(); }
+      if (item?.type === "node" && item.canExpand) {
+        onToggle(item.treeIndex, item.id);
+        e.preventDefault();
+      } else if (item?.type === "more") {
+        onMore(item.treeIndex, item.parentId);
+        e.preventDefault();
+      }
     } else if (e.key === "+" || e.key === "=") {
-      if (item?.type === "node" && item.hasMore) { onMore(item.treeIndex, item.id);
-        e.preventDefault(); } else if (item?.type === "more") { onMore(item.treeIndex, item.parentId);
-        e.preventDefault(); }
+      if (item?.type === "node" && item.hasMore) {
+        onMore(item.treeIndex, item.id);
+        e.preventDefault();
+      } else if (item?.type === "more") {
+        onMore(item.treeIndex, item.parentId);
+        e.preventDefault();
+      }
     } else if (/^[0-9]$/.test(e.key)) {
       const n = parseInt(e.key, 10);
       if (goSiblingFS(n)) e.preventDefault();
     }
-  }, [collectNavItems, clampedFocus, onToggle, onMore, findTreeByIndex]);
-
-  React.useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [items]);
+  }, [collectNavItems, focusIdx, onToggle, onMore, findTreeByIndex, startNoteEditing, editingNote, saveNote, cancelNoteEditing, addOutput]);
 
   const renderItems = items.map((item) => {
     if (item.type === 'output') {
@@ -745,7 +1044,6 @@ function App() {
       if (!root) return null;
       const renderRoot = buildRenderNode(item.manager, root.id, item.notationKey, notationNames, item.treeIndex);
       if (!renderRoot) return null;
-
       return React.createElement("div", {
         key: `tree-wrapper-${item.id}`,
         style: { marginTop: 4 }
@@ -768,6 +1066,10 @@ function App() {
           onMore,
           notationNames,
           fsIndex: undefined,
+          editingNote,
+          startNoteEditing,
+          saveNote,
+          cancelNoteEditing,
         })
       );
     }
@@ -791,7 +1093,6 @@ function App() {
       }
     },
     React.createElement("link", { href: "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap", rel: "stylesheet" }),
-    // ========== 头部 ==========
     React.createElement("div", { style: {
         padding: "8px 16px",
         borderBottom: `1px solid ${theme.border}`,
@@ -827,7 +1128,6 @@ function App() {
         ))
       )
     ),
-    // ========== 滚动区域 ==========
     React.createElement(
       "div", {
         ref: scrollRef,
@@ -838,12 +1138,7 @@ function App() {
         }
       },
       renderItems,
-      // ===== 输入框区域（已去除上方边距和分隔线，完全融入） =====
-      React.createElement("div", { style: {
-          display: "flex",
-          flexDirection: "column",
-          // 去掉 marginTop, paddingTop, borderTop
-        } },
+      React.createElement("div", { style: { display: "flex", flexDirection: "column" } },
         React.createElement("div", { style: {
             display: "flex",
             alignItems: "baseline",
@@ -859,9 +1154,7 @@ function App() {
             "input", {
               ref: inputRef,
               value: input,
-              onChange: (e) => {
-                setInput(e.target.value);
-              },
+              onChange: (e) => setInput(e.target.value),
               onKeyDown: (e) => {
                 if (e.key === "Enter") {
                   handleSubmit();
@@ -869,7 +1162,7 @@ function App() {
                 }
               },
               onFocus: () => setFocusIdx(navItems.length - 1),
-              placeholder: `输入 记号名(表达式)，如 PrSS(0,1,2) 或直接输入 BMS 创建占位极限`,
+              placeholder: `输入 记号名 表达式，如 PrSS 0,1,2 或直接输入记号名`,
               autoFocus: true,
               style: {
                 flex: 1,
@@ -886,7 +1179,6 @@ function App() {
         )
       )
     ),
-    // ========== 底部状态栏 ==========
     React.createElement("div", { style: {
         padding: "6px 16px",
         borderTop: `1px solid ${theme.border}`,
@@ -897,7 +1189,7 @@ function App() {
         gap: "0 12px",
         flexShrink: 0
       } },
-      "↑↓导航 · ←→折叠 · , 父节点 · 0-9 FS[n] · += 更多 · Esc 输入框 · help"
+      "↑↓导航 · ←→折叠 · , 父节点 · 0-9 FS[n] · += 更多 · n 注释 · Esc 取消 · Enter 保存"
     )
   );
 }

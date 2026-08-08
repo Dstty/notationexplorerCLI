@@ -1,16 +1,22 @@
 ﻿// ./notation/Help.js
 
 const HELP_TEXT = `输入格式: 记号名 表达式
-例如：PrSS(0,1,2,3)
+或直接输入记号名
+
+例如：
+      PrSS(0,1,2,3)
       PrSS 0,1,2,3
       PrSS
 
 命令列表：
-  /clear
-      清除所有日志和树，重置界面。
-
   /list
       列出当前已注册的记号名称。
+
+  /save
+      保存当前树
+
+  /clear
+      清除所有日志和树，重置界面。
 
   /set 参数=值
       设置运行时参数。支持以下参数：
@@ -31,6 +37,7 @@ const HELP_TEXT = `输入格式: 记号名 表达式
   ↓ / j       下移焦点
   ← / h       折叠节点（若已展开），否则跳转到父节点
   → / l       展开节点（若可展开），否则无操作
+  n           添加注释
   ,           跳转到父节点
   Backspace   跳转到父节点
   0-9         跳转到当前父节点下的第 N 个子节点（FS 索引）
@@ -57,10 +64,13 @@ export function expandLimit(k) {
   return null; // 没有更多行了
 }
 
-export function expandNormal(expr) {
+export function expandNormal(expr, k) {
   // 行节点不可再展开
   if (expr.type === 'line') return null;
-  return expr;
+  if (k < LINES.length) {
+    return { type: 'line', index: k, text: LINES[k] };
+  }
+  return null; // 没有更多行了
 }
 
 export function display(expr) {

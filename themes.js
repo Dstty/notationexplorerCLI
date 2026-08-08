@@ -18,7 +18,8 @@ export const THEMES = {
     inputBg: "transparent",
     headerBg: "transparent",
     labelColor: "#7a8599",
-    settingColor: "#4a5568"
+    settingColor: "#4a5568",
+    noteColor: "#64b5f6"       // ★ 注释颜色
   },
   light: {
     name: "Light",
@@ -36,7 +37,8 @@ export const THEMES = {
     inputBg: "transparent",
     headerBg: "#f8f8fc",
     labelColor: "#6666aa",
-    settingColor: "#9999bb"
+    settingColor: "#9999bb",
+    noteColor: "#2a6bb0"
   },
   paper: {
     name: "Paper",
@@ -54,7 +56,8 @@ export const THEMES = {
     inputBg: "transparent",
     headerBg: "#efe8da",
     labelColor: "#8a7858",
-    settingColor: "#b0a890"
+    settingColor: "#b0a890",
+    noteColor: "#8a6b40"
   },
   solarizedLight: {
     name: "Sol. Light",
@@ -72,7 +75,8 @@ export const THEMES = {
     inputBg: "transparent",
     headerBg: "#eee8d5",
     labelColor: "#b58900",
-    settingColor: "#93a1a1"
+    settingColor: "#93a1a1",
+    noteColor: "#268bd2"
   },
   solarizedDark: {
     name: "Sol. Dark",
@@ -90,7 +94,8 @@ export const THEMES = {
     inputBg: "transparent",
     headerBg: "#073642",
     labelColor: "#b58900",
-    settingColor: "#586e75"
+    settingColor: "#586e75",
+    noteColor: "#268bd2"
   }
 };
 

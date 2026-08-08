@@ -15,6 +15,14 @@ export function parseCommand(input) {
     return { command: cmd };
   }
 
+  // /save [Êı×Ö]
+  if (cmd === 'save') {
+    if (parts.length > 1 && /^\d+$/.test(parts[1])) {
+      return { command: 'save', num: parseInt(parts[1], 10) };
+    }
+    return { command: 'save' };
+  }
+
   // /set key=value »ò /set key value
   if (cmd === 'set') {
     const rest = parts.slice(1).join(' ');
