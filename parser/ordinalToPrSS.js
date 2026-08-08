@@ -58,7 +58,8 @@ function tokenize(s) {
       i = j;
       continue;
     }
-    if (c === 'w') {
+    // 支持半角 w 和全角 ω
+    if (c === 'w' || c === 'ω') {
       tokens.push(new Token('W'));
       i++;
       continue;
@@ -135,7 +136,7 @@ class Parser {
   parsePow() {
     let left = this.parseAtom();
     if (this.peek() && this.peek().type === 'POWER') {
-      if (left !== W) throw new SyntaxError("幂的底数必须是 w");
+      if (left !== W) throw new SyntaxError("幂的底数必须是 ω");
       this.consume('POWER');
       const right = this.parsePow();
       left = new Pow(left, right);

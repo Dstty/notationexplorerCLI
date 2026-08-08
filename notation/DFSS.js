@@ -141,6 +141,7 @@ export function compare(a, b) {
  * @returns {string}
  */
 export function display(seq, compact) {
+    compact=true;
     if (!seq || seq.length === 0) return compact ? "0" : "( )";
     if (compact) {
         return seq.join(", ");

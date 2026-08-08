@@ -1,89 +1,90 @@
 ﻿// ============================================================================
 //  记号表达式解析器
 // ============================================================================
-import { NOTATION_REGISTRY } from '../notationCore.js';
+import { NOTATION_REGISTRY, buildAliasMap } from '../notationCore.js';
 import { ordinalToPrSS } from './ordinalToPrSS.js';
 
+// 预构建别名映射（避免重复构建）
+const aliasMap = buildAliasMap();
+
+// 获取所有可用的候选键（主键 + 别名），并去重
+const allCandidates = Array.from(aliasMap.keys());
+
 export function parseNotation(input) {
-  const trimmed = input.trim();
+  let trimmed = input.trim();
 
-  // ---------- 第一步：匹配注册表中的记号名（最长匹配） ----------
-  const lowerInput = trimmed.toLowerCase();
-  const keys = Object.keys(NOTATION_REGISTRY);
-  let matchedKey = null;
-  for (const key of keys) {
-    if (lowerInput.startsWith(key)) {
-      if (!matchedKey || key.length > matchedKey.length) {
-        matchedKey = key;
-      }
+  // ---------- 第一步：处理 "limit" 前缀 ----------
+  const limitParenMatch = trimmed.match(/^limit\s*\((.+)\)\s*$/i);
+  if (limitParenMatch) {
+    trimmed = limitParenMatch[1].trim();
+  } else {
+    const limitSpaceMatch = trimmed.match(/^limit\s+(.+)/i);
+    if (limitSpaceMatch) {
+      trimmed = limitSpaceMatch[1].trim();
     }
   }
-
-  if (matchedKey) {
-    const key = matchedKey;
-    const rawName = NOTATION_REGISTRY[key].name;
-    const rest = trimmed.substring(matchedKey.length).trimStart();
-
-    // ---- limit 格式 ----
-    if (rest === '' || /^(\(limit\)|limit)$/i.test(rest)) {
-      return { notationKey: key, rawName, inner: 'LIMIT_PLACEHOLDER', fromOrdinal: false };
-    }
-
-    // ---- 括号格式（支持单括号和多括号序列） ----
-    if (rest.startsWith('(')) {
-      let depth = 0, endIdx = -1;
-      for (let i = 0; i < rest.length; i++) {
-        if (rest[i] === '(') depth++;
-        else if (rest[i] === ')') {
-          depth--;
-          if (depth === 0) { endIdx = i; break; }
-        }
-      }
-      if (endIdx !== -1) {
-        const after = rest.substring(endIdx + 1).trim();
-        if (after === '') {
-          // 单括号：提取括号内
-          const inner = rest.substring(1, endIdx).trim();
-          return { notationKey: key, rawName, inner, fromOrdinal: false };
-        } else if (after.startsWith('(')) {
-          // 后续还有括号：整个 rest 作为 inner
-          return { notationKey: key, rawName, inner: rest, fromOrdinal: false };
-        } else {
-          throw new Error('括号格式不完整或有多余内容');
-        }
-      }
-      throw new Error('括号格式不完整（括号未闭合）');
-    }
-
-    // ---- 无分隔符格式（如 prss0,1,2） ----
-    if (rest.length > 0 && !/^\s/.test(rest)) {
-      return { notationKey: key, rawName, inner: rest, fromOrdinal: false };
-    }
-
-    // ---- 空格格式（如 prss 0,1,2） ----
-    if (/^\s/.test(rest)) {
-      const inner = rest.trim();
-      if (inner === '') throw new Error('空格格式缺少表达式');
-      return { notationKey: key, rawName, inner, fromOrdinal: false };
-    }
-
-    throw new Error('无效输入');
+  if (trimmed === '') {
+    throw new Error('limit 关键字后缺少表达式');
   }
 
-  // ---------- 第二步：无记号名 → 尝试序数表达式 ----------
-  if (/[w^*+]/.test(trimmed)) {
+  // ---------- 第二步：全角 ω → 半角 w（统一格式） ----------
+  const normalized = trimmed.replace(/ω/g, 'w');
+  const lowerInput = normalized.toLowerCase();
+
+  // ---------- 第三步：匹配注册表中的记号名（主键 + 别名） ----------
+  const matchedCandidates = allCandidates.filter(candidate => lowerInput.startsWith(candidate));
+
+  if (matchedCandidates.length === 0) {
+    // 无匹配 → 尝试序数表达式
     try {
-      const prssSeq = ordinalToPrSS(trimmed);
+      const prssSeq = ordinalToPrSS(normalized); // 已转换 ω
       return {
         notationKey: 'prss',
         rawName: 'PrSS',
         inner: prssSeq,
         fromOrdinal: true,
       };
-    } catch (_) {
-      // 转换失败则继续
+    } catch (e) {
+      console.error('ordinalToPrSS error:', e);
+      throw new Error('无效输入：既不是记号表达式，也不是序数表达式，查询已有记号请输入 /list');
     }
   }
 
-  throw new Error('无效输入：既不是记号表达式，也不是序数表达式，查询已有记号请输入/list');
+  // 排序：无括号优先，同级别按长度降序（最长匹配）
+  matchedCandidates.sort((a, b) => {
+    const aHasParen = a.includes('(') || a.includes(')');
+    const bHasParen = b.includes('(') || b.includes(')');
+    if (aHasParen !== bHasParen) return aHasParen ? 1 : -1;
+    return b.length - a.length;
+  });
+
+  const matchedCandidate = matchedCandidates[0];
+  const key = aliasMap.get(matchedCandidate); // 获取主键
+  const rawName = NOTATION_REGISTRY[key].name;
+
+  // 截取剩余部分（从 matchedCandidate 之后开始）
+  const rest = normalized.substring(matchedCandidate.length).trimStart();
+
+  // ---- limit 格式 ----
+  if (rest === '' || /^(\(limit\)|limit)$/i.test(rest)) {
+    return { notationKey: key, rawName, inner: 'LIMIT_PLACEHOLDER', fromOrdinal: false };
+  }
+
+  // ---- （已删除括号格式分支） ----
+  // 原先的括号匹配逻辑已移除，现在 rest 将直接进入后续分支
+
+  // ---- 无分隔符格式（如 prss0,1,2） ----
+  // 注意：此分支会匹配所有以非空格开头的 rest，包括以 '(' 开头的情况
+  if (rest.length > 0 && !/^\s/.test(rest)) {
+    return { notationKey: key, rawName, inner: rest, fromOrdinal: false };
+  }
+
+  // ---- 空格格式（如 prss 0,1,2） ----
+  if (/^\s/.test(rest)) {
+    const inner = rest.trim();
+    if (inner === '') throw new Error('空格格式缺少表达式');
+    return { notationKey: key, rawName, inner, fromOrdinal: false };
+  }
+
+  throw new Error('无效输入');
 }

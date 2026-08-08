@@ -1,4 +1,4 @@
-﻿// ============================================================================
+﻿﻿// ============================================================================
 //  获取全局 React
 // ============================================================================
 const React = window.React;
@@ -145,10 +145,8 @@ export function TreeNodeView({
   // ================================================================
   let icon = null;
   if (node.isSuccessor && node.hasExpanded) {
-    // 后继节点已展开，不再显示折叠切换图标
     icon = null;
   } else {
-    // 普通节点或未展开的后继节点，按原有规则显示
     if (hasExpanded) {
       icon = node.isExpanded ? "[-]" : "[+]";
     } else if (canExpand) {
@@ -192,6 +190,19 @@ export function TreeNodeView({
     if (isHelp) return;
     if (!isEditing) {
       startNoteEditing(node.treeIndex, node.id);
+    }
+  };
+
+  // ================================================================
+  //  🔥 新增：区分点击空白区域与点击子元素
+  // ================================================================
+  const handleOuterClick = (e) => {
+    if (e.target === e.currentTarget) {
+      // 点击空白区域：仅聚焦，不展开
+      setFocusToNode();
+    } else {
+      // 点击子元素（文本、前缀等）：执行原有的展开/折叠逻辑
+      handleTextClick();
     }
   };
 
@@ -355,13 +366,13 @@ export function TreeNodeView({
           display: "flex",
           alignItems: "baseline",
           minHeight: 26,
-          cursor: (hasExpanded || canExpand) ? "pointer" : "pointer",
+          cursor: "pointer",
           background: isFocused ? theme.highlight : "transparent",
           borderRadius: 2,
           margin: "0 -4px",
           padding: "0 4px"
         },
-        onClick: handleTextClick
+        onClick: handleOuterClick,   // 🔥 使用新的事件处理函数
       },
       React.createElement(
         "span",

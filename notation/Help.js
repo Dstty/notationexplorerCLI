@@ -1,10 +1,10 @@
 ﻿// ./notation/Help.js
+console.log('=== Help.js VERSION 2 ===');
 
 const HELP_TEXT = `输入格式: 记号名 表达式
 或直接输入记号名
 
 例如：
-      PrSS(0,1,2,3)
       PrSS 0,1,2,3
       PrSS
 

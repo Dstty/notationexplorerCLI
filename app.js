@@ -300,8 +300,16 @@ function App() {
           return;
         }
         case 'list': {
-          const avail = Object.keys(NOTATION_REGISTRY).map(k => NOTATION_REGISTRY[k].name).join(', ');
-          addOutput(`» 已注册记号: ${avail || '无'}`, 'info');
+          // 修改：不显示主键，所有内容合并为一行，用逗号分隔
+          const parts = [];
+          for (const [key, entry] of Object.entries(NOTATION_REGISTRY)) {
+            let part = entry.name;
+            if (entry.aliases && entry.aliases.length > 0) {
+              part += ` (别名: ${entry.aliases.join(', ')})`;
+            }
+            parts.push(part);
+          }
+          addOutput(`» 已注册记号: ${parts.join(', ')}`, 'info');
           return;
         }
         case 'set': {
@@ -359,7 +367,8 @@ function App() {
       const parsed = parseNotation(raw);
       const { notationKey, rawName, inner, fromOrdinal } = parsed;
       if (fromOrdinal) {
-        addOutput(`» ${raw} → PrSS ${inner}`, 'conversion');
+        const displayInput = raw.replace(/w/g, 'ω').replace(/e/g, 'ε');
+        addOutput(`» ${displayInput} → PrSS ${inner}`, 'conversion');
       }
       const mod = await loadNotation(notationKey);
       let expr;
@@ -697,7 +706,7 @@ function App() {
             "input", {
               ref: inputRef,
               value: input,
-              onChange: (e) => setInput(e.target.value),
+              onChange: (e) => setInput(e.target.value.replace(/（/g, '(').replace(/）/g, ')').replace(/，/g, ',')),
               onKeyDown: (e) => {
                 if (e.key === "Enter") {
                   handleSubmit();
@@ -732,7 +741,7 @@ function App() {
         gap: "0 12px",
         flexShrink: 0
       } },
-      "↑↓导航 · ←→折叠 · , 父节点 · 0-9 FS[n] · += 更多 · n 注释 · Esc 取消 · Enter 保存"
+      "↑↓导航 · ←→折叠 · , 父节点 · 0-9 FS[n] · += 更多 · n 注释 · Esc 取消 · help 保存"
     )
   );
 }
