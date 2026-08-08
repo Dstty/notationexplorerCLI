@@ -48,7 +48,7 @@ const NOTATION_REGISTRY = {
     aliases: [],
   },
   pps: {
-    name: 'PPS',
+    name: 'PPS(已降链)',
     load: () => import('./notation/PPS.js'),
     aliases: ['PPS1'],   
   },
@@ -63,7 +63,7 @@ const NOTATION_REGISTRY = {
     aliases: [],   
   },
   sps: {
-    name: 'SPS',
+    name: 'SPS(已降链)',
     load: () => import('./notation/SPS.js'),
     aliases: [],   
   },
