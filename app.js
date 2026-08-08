@@ -741,7 +741,7 @@ function App() {
         gap: "0 12px",
         flexShrink: 0
       } },
-      "↑↓导航 · ←→折叠 · , 父节点 · 0-9 FS[n] · += 更多 · n 注释 · Esc 取消 · help 保存"
+      "↑↓导航 · ←→折叠 · , 父节点 · 0-9 FS[n] · += 更多 · n 注释 · Esc 取消 · help 帮助"
     )
   );
 }

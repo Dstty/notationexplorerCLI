@@ -62,6 +62,11 @@ const NOTATION_REGISTRY = {
     load: () => import('./notation/DEN.js'),
     aliases: [],   
   },
+  sps: {
+    name: 'SPS',
+    load: () => import('./notation/SPS.js'),
+    aliases: [],   
+  },
 };
 
 export { NOTATION_REGISTRY };
