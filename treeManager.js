@@ -1,4 +1,4 @@
-﻿// treeManager.js - 树结构管理核心模块
+﻿﻿// treeManager.js - 树结构管理核心模块
 
 /**
  * 递归比较两个数组的字典序（支持嵌套数组）
@@ -174,6 +174,7 @@ export class TreeManager {
         return null;
     }
 
+    // ==================== 修改后的 expandNode ====================
     expandNode(nodeId, options = {}) {
         const N = this.Notation;
         const node = this.nodes.get(nodeId);
@@ -182,11 +183,6 @@ export class TreeManager {
         if (!node.isExpanded) {
             return { success: false, message: '请先切换到展开状态' };
         }
-        // ========== 已删除 isSuccessor 拦截（注释掉） ==========
-        // if (node.type === 'NORMAL' && N.isSuccessor && N.isSuccessor(node.data)) {
-        //     return { success: false, message: '后继节点不可展开' };
-        // }
-        // =====================================================
         if (node.type === 'NORMAL' && typeof N.isEmpty === 'function' && N.isEmpty(node.data)) {
             return { success: false, message: '空表达式节点不可展开' };
         }
@@ -196,7 +192,7 @@ export class TreeManager {
         node.expansionClickCount++;
         const currentClickIndex = node.expansionClickCount;
 
-        // ========== 修复：移除 parentId 限制，让所有 NORMAL 节点都能获取后继 ==========
+        // 获取后继节点作为目标上限
         let successorNode = null;
         if (node.type === 'NORMAL' && N && typeof N.compare === 'function') {
             successorNode = this._getNextInPreOrder(nodeId);
@@ -204,20 +200,18 @@ export class TreeManager {
                 successorNode = null;
             }
         }
-        // ============================================================================
 
         let finalK = null;
         let finalData = null;
         const MAX_ATTEMPTS = 100;
 
+        // ---------- 展开计算（不变） ----------
         if (successorNode) {
             const targetData = successorNode.data;
             let attempts = 0;
-
             while (attempts < MAX_ATTEMPTS) {
                 const k = node.expansionCount + 1;
                 let newData = null;
-
                 if (node.type === 'LIMIT' && node.data === null) {
                     if (typeof N.expandLimit !== 'function') {
                         return { success: false, message: '记号系统未实现 expandLimit' };
@@ -247,17 +241,14 @@ export class TreeManager {
                     break;
                 }
             }
-
             if (finalData === null) {
                 return { success: false, message: '展开结果无法超过后继节点（尝试次数过多或生成失败）' };
             }
         } else {
-            // 无后继节点时，只要求非空
             let attempts = 0;
             while (attempts < MAX_ATTEMPTS) {
                 const k = node.expansionCount + 1;
                 let newData = null;
-
                 if (node.type === 'LIMIT' && node.data === null) {
                     if (typeof N.expandLimit !== 'function') {
                         return { success: false, message: '记号系统未实现 expandLimit' };
@@ -275,25 +266,58 @@ export class TreeManager {
                     attempts++;
                     continue;
                 }
-
                 finalK = k;
                 finalData = newData;
                 break;
             }
-
             if (finalData === null) {
                 return { success: false, message: '展开结果为空（尝试多次后）' };
             }
         }
+        // -----------------------------------------
 
-        const newNode = new TreeNode('NORMAL', finalData, nodeId, false, currentClickIndex);
-        if (!this.addChild(nodeId, newNode)) {
-            return { success: false, message: '添加节点失败' };
+        // ========== 插入逻辑：根据 isSuccessor 决定 ==========
+        // 如果是后继节点，尝试插入到当前节点的正下方（兄弟位置）
+        // 否则作为子节点添加
+        let parentIdForNewNode = nodeId;       // 默认为子节点
+        let insertAsSibling = false;
+
+        if (node.isSuccessor) {
+            const parent = this.getParent(nodeId);
+            if (parent) {
+                parentIdForNewNode = parent.id;
+                insertAsSibling = true;
+            }
         }
-        node.expansionCount = finalK;
 
+        const newNode = new TreeNode('NORMAL', finalData, parentIdForNewNode, false, currentClickIndex);
+
+        let added = false;
+        if (insertAsSibling) {
+            const parent = this.getParent(nodeId);
+            if (parent) {
+                const idx = parent.children.indexOf(nodeId);
+                if (idx !== -1) {
+                    this._registerNode(newNode);
+                    // 插入到当前节点之后（因为 children 是降序，idx+1 即为正下方）
+                    parent.children.splice(idx + 1, 0, newNode.id);
+                    this._updateSuccessorFlag(newNode);
+                    added = true;
+                }
+            }
+        }
+
+        // 若未能作为兄弟插入（例如无父节点或插入失败），则回退为添加子节点
+        if (!added) {
+            if (!this.addChild(nodeId, newNode)) {
+                return { success: false, message: '添加节点失败' };
+            }
+        }
+
+        node.expansionCount = finalK;
         return { success: true, message: '展开成功', newNodeId: newNode.id };
     }
+    // ==================== 修改结束 ====================
 
     toggleNode(nodeId) {
         const node = this.nodes.get(nodeId);

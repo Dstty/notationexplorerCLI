@@ -1,4 +1,4 @@
-﻿﻿// ============================================================================
+﻿// ============================================================================
 //  获取全局 React
 // ============================================================================
 const React = window.React;
@@ -139,11 +139,21 @@ export function TreeNodeView({
   const connector = fsIndex !== undefined ? (isLast ? LAST_B : BRANCH) : "▸ ";
   const prefix = prefixes.join("");
 
+  // ================================================================
+  //  🔥 修改点：后继节点展开后（hasExpanded === true）不显示图标；
+  //     未展开时可显示 [+]（若 canExpand）
+  // ================================================================
   let icon = null;
-  if (hasExpanded) {
-    icon = node.isExpanded ? "[-]" : "[+]";
-  } else if (canExpand) {
-    icon = "[+]";
+  if (node.isSuccessor && node.hasExpanded) {
+    // 后继节点已展开，不再显示折叠切换图标
+    icon = null;
+  } else {
+    // 普通节点或未展开的后继节点，按原有规则显示
+    if (hasExpanded) {
+      icon = node.isExpanded ? "[-]" : "[+]";
+    } else if (canExpand) {
+      icon = "[+]";
+    }
   }
 
   const setFocusToNode = () => {
@@ -361,7 +371,6 @@ export function TreeNodeView({
       ),
       React.createElement(
         "span",
-        // 修改点：不可展开节点也显示为 theme.fg（白色/主色），不再使用 theme.fgDim
         { style: { color: node.error ? theme.error : theme.fg, whiteSpace: 'pre-wrap' } },
         node.displayStr
       ),
