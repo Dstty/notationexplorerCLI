@@ -182,9 +182,11 @@ export class TreeManager {
         if (!node.isExpanded) {
             return { success: false, message: '请先切换到展开状态' };
         }
-        if (node.type === 'NORMAL' && N.isSuccessor && N.isSuccessor(node.data)) {
-            return { success: false, message: '后继节点不可展开' };
-        }
+        // ========== 已删除 isSuccessor 拦截（注释掉） ==========
+        // if (node.type === 'NORMAL' && N.isSuccessor && N.isSuccessor(node.data)) {
+        //     return { success: false, message: '后继节点不可展开' };
+        // }
+        // =====================================================
         if (node.type === 'NORMAL' && typeof N.isEmpty === 'function' && N.isEmpty(node.data)) {
             return { success: false, message: '空表达式节点不可展开' };
         }
@@ -194,13 +196,15 @@ export class TreeManager {
         node.expansionClickCount++;
         const currentClickIndex = node.expansionClickCount;
 
+        // ========== 修复：移除 parentId 限制，让所有 NORMAL 节点都能获取后继 ==========
         let successorNode = null;
-        if (node.parentId !== null && node.type === 'NORMAL' && N && typeof N.compare === 'function') {
+        if (node.type === 'NORMAL' && N && typeof N.compare === 'function') {
             successorNode = this._getNextInPreOrder(nodeId);
             if (successorNode && successorNode.type !== 'NORMAL') {
                 successorNode = null;
             }
         }
+        // ============================================================================
 
         let finalK = null;
         let finalData = null;
@@ -248,7 +252,7 @@ export class TreeManager {
                 return { success: false, message: '展开结果无法超过后继节点（尝试次数过多或生成失败）' };
             }
         } else {
-            // ========== FIX: 无后继节点时也要循环尝试 ==========
+            // 无后继节点时，只要求非空
             let attempts = 0;
             while (attempts < MAX_ATTEMPTS) {
                 const k = node.expansionCount + 1;
@@ -267,7 +271,7 @@ export class TreeManager {
                 }
 
                 if (N.isEmpty && N.isEmpty(newData)) {
-                    node.expansionCount = k;   // 推进计数，下次继续
+                    node.expansionCount = k;
                     attempts++;
                     continue;
                 }
@@ -313,23 +317,26 @@ export class TreeManager {
         return null;
     }
 
-    // ========== 修正后的 canExpandNode ==========
     canExpandNode(nodeId) {
         const N = this.Notation;
         const node = this.nodes.get(nodeId);
         if (!node) return false;
 
-        // 预判不依赖 isExpanded
-        if (node.type === 'NORMAL' && N.isSuccessor && N.isSuccessor(node.data)) return false;
+        // ========== 已删除 isSuccessor 拦截（注释掉） ==========
+        // if (node.type === 'NORMAL' && N.isSuccessor && N.isSuccessor(node.data)) return false;
+        // =====================================================
+
         if (node.type === 'NORMAL' && typeof N.isEmpty === 'function' && N.isEmpty(node.data)) return false;
 
+        // ========== 修复：移除 parentId 限制 ==========
         let successorNode = null;
-        if (node.parentId !== null && node.type === 'NORMAL' && N && typeof N.compare === 'function') {
+        if (node.type === 'NORMAL' && N && typeof N.compare === 'function') {
             successorNode = this._getNextInPreOrder(nodeId);
             if (successorNode && successorNode.type !== 'NORMAL') {
                 successorNode = null;
             }
         }
+        // ==============================================
 
         let tempExpansionCount = node.expansionCount;
         let attempts = 0;
@@ -366,7 +373,6 @@ export class TreeManager {
             }
             return false;
         } else {
-            // ========== FIX: 无后继时也要循环尝试 ==========
             while (attempts < MAX_ATTEMPTS) {
                 const k = tempExpansionCount + 1;
                 let newData = null;

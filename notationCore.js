@@ -14,6 +14,10 @@ const NOTATION_REGISTRY = {
     name: 'BMS',
     load: () => import('./notation/BM.js'),
   },
+  dfss: {
+    name: 'DFSS',
+    load: () => import('./notation/DFSS.js'),
+  },
 };
 
 export { NOTATION_REGISTRY };
